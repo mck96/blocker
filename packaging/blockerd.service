@@ -1,0 +1,20 @@
+[Unit]
+Description=Blocker daemon — OS-level website blocker (DNS sinkhole)
+Documentation=https://github.com/mck96/blocker
+After=network-online.target
+Wants=network-online.target
+# This service deliberately manages /etc/resolv.conf and /etc/hosts and binds
+# 127.0.0.1:53, so it needs to run with full privileges.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/blockerd
+Restart=on-failure
+RestartSec=2
+# Restoring resolv.conf/hosts on stop is handled by the daemon's own SIGTERM
+# handler, so give it a moment to clean up.
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

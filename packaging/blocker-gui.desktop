@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Blocker
+GenericName=Website Blocker
+Comment=Block distracting websites system-wide, in every browser
+Exec=blocker-gui
+Icon=security-high
+Terminal=false
+Categories=Utility;Settings;
+Keywords=block;focus;productivity;website;dns;
