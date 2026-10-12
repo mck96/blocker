@@ -45,6 +45,9 @@ struct App {
     session_minutes: u32,
     session_lock: bool,
     toast: Option<(String, Instant)>,
+    /// Set when a rule was added/removed/toggled; applied after the frame so the
+    /// blocklist takes effect immediately without a separate "Apply" click.
+    pending_apply: bool,
 }
 
 impl App {
@@ -59,6 +62,7 @@ impl App {
             session_minutes: 60,
             session_lock: false,
             toast: None,
+            pending_apply: false,
         };
         app.poll();
         app
@@ -145,6 +149,13 @@ impl eframe::App for App {
                 self.options_section(ui);
             });
         });
+
+        // Rule add/remove/toggle is applied here, after the frame, so it takes
+        // effect immediately without a separate "Apply" click.
+        if self.pending_apply {
+            self.pending_apply = false;
+            self.apply();
+        }
     }
 }
 
@@ -412,7 +423,7 @@ impl App {
                 if blocker_core::rule::ParsedRule::parse(&pat).is_some() {
                     self.cfg.rules.push(SiteRule::new(pat));
                     self.new_rule.clear();
-                    self.dirty = true;
+                    self.pending_apply = true; // apply immediately
                 } else {
                     self.toast("⚠ not a valid pattern");
                 }
@@ -422,6 +433,7 @@ impl App {
         ui.add_space(4.0);
 
         let mut remove: Option<usize> = None;
+        let mut toggled = false;
         egui::Frame::group(ui.style()).show(ui, |ui| {
             if self.cfg.rules.is_empty() {
                 ui.weak("No rules yet. Add a site above.");
@@ -429,7 +441,7 @@ impl App {
             for (i, rule) in self.cfg.rules.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     if ui.checkbox(&mut rule.enabled, "").changed() {
-                        // mark dirty below via flag
+                        toggled = true;
                     }
                     let text = if rule.enabled {
                         egui::RichText::new(&rule.pattern)
@@ -461,21 +473,39 @@ impl App {
             }
         });
 
-        // Detect edits to enabled flags: cheap heuristic — compare to status.
+        if let Some(i) = remove {
+            self.cfg.rules.remove(i);
+            self.pending_apply = true;
+        }
+        if toggled {
+            self.pending_apply = true;
+        }
+
+        // Keep the "unsaved changes" indicator for the OTHER editors (schedule,
+        // block page, enforcement reach, break limits). Rule edits auto-apply
+        // above; daemon-managed fields (sessions, break counters) are ignored.
         if let Some(s) = &self.status {
-            if s.config.rules != self.cfg.rules {
+            let differs = s.config.schedule != self.cfg.schedule
+                || s.config.strict_block_doh != self.cfg.strict_block_doh
+                || s.config.network_filter != self.cfg.network_filter
+                || s.config.block_page != self.cfg.block_page
+                || s.config.block_title != self.cfg.block_title
+                || s.config.block_message != self.cfg.block_message
+                || s.config.break_minutes != self.cfg.break_minutes
+                || s.config.breaks_per_day != self.cfg.breaks_per_day;
+            if differs && !self.pending_apply {
                 self.dirty = true;
             }
         }
 
-        if let Some(i) = remove {
-            self.cfg.rules.remove(i);
-            self.dirty = true;
-        }
-
         ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("Added/removed sites apply instantly.")
+                .small()
+                .weak(),
+        );
         ui.horizontal(|ui| {
-            let apply = egui::Button::new(egui::RichText::new("💾 Apply changes").strong());
+            let apply = egui::Button::new(egui::RichText::new("💾 Apply other changes").strong());
             if ui.add_enabled(self.dirty, apply).clicked() {
                 self.apply();
             }

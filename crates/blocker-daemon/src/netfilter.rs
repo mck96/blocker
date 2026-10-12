@@ -34,6 +34,8 @@ const FWMARK: u32 = 1;
 const SO_ORIGINAL_DST: libc::c_int = 80;
 
 static STARTED: AtomicBool = AtomicBool::new(false);
+static V4_READY: AtomicBool = AtomicBool::new(false);
+static V6_READY: AtomicBool = AtomicBool::new(false);
 
 /// Turn network-level enforcement on or off to match the config. On enable it
 /// binds the listeners (once) and installs the nftables rules; on disable it
@@ -73,6 +75,24 @@ pub fn remove_nft() {
 fn install_nft() -> std::io::Result<()> {
     // Idempotent: drop any previous instance first.
     remove_nft();
+
+    // Only redirect families we are actually listening on, so a failed IPv6
+    // listener never black-holes IPv6 web traffic.
+    let mut redirects = String::new();
+    if V4_READY.load(Ordering::Relaxed) {
+        redirects.push_str(&format!(
+            "\t\tmeta nfproto ipv4 tcp dport {{ 80, 443 }} redirect to :{PROXY_PORT}\n"
+        ));
+    }
+    if V6_READY.load(Ordering::Relaxed) {
+        redirects.push_str(&format!(
+            "\t\tmeta nfproto ipv6 tcp dport {{ 80, 443 }} redirect to :{PROXY_PORT}\n"
+        ));
+    }
+    if redirects.is_empty() {
+        return Err(std::io::Error::other("no listener bound"));
+    }
+
     let script = format!(
         "table inet blocker_nf {{\n\
          \tchain out_nat {{\n\
@@ -80,7 +100,7 @@ fn install_nft() -> std::io::Result<()> {
          \t\tmeta mark {mark} return\n\
          \t\tip daddr 127.0.0.0/8 return\n\
          \t\tip6 daddr ::1 return\n\
-         \t\tmeta l4proto tcp tcp dport {{ 80, 443 }} redirect to :{port}\n\
+         {redirects}\
          \t}}\n\
          \tchain out_filter {{\n\
          \t\ttype filter hook output priority 0; policy accept;\n\
@@ -89,7 +109,6 @@ fn install_nft() -> std::io::Result<()> {
          \t}}\n\
          }}\n",
         mark = FWMARK,
-        port = PROXY_PORT,
     );
     let mut child = Command::new("nft")
         .args(["-f", "-"])
@@ -112,18 +131,26 @@ fn ensure_listeners(engine: &Arc<Engine>) {
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
-    let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, PROXY_PORT));
-    let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, PROXY_PORT));
     let mut any = false;
-    if let Ok(l) = v4 {
-        any = true;
-        let engine = engine.clone();
-        std::thread::spawn(move || accept_loop(l, false, engine));
+    match TcpListener::bind((Ipv4Addr::LOCALHOST, PROXY_PORT)) {
+        Ok(l) => {
+            any = true;
+            V4_READY.store(true, Ordering::Relaxed);
+            let engine = engine.clone();
+            std::thread::spawn(move || accept_loop(l, false, engine));
+        }
+        Err(e) => eprintln!("[blocker] network filter: IPv4 listener bind failed: {e}"),
     }
-    if let Ok(l) = v6 {
-        any = true;
-        let engine = engine.clone();
-        std::thread::spawn(move || accept_loop(l, true, engine));
+    match TcpListener::bind((Ipv6Addr::LOCALHOST, PROXY_PORT)) {
+        Ok(l) => {
+            any = true;
+            V6_READY.store(true, Ordering::Relaxed);
+            let engine = engine.clone();
+            std::thread::spawn(move || accept_loop(l, true, engine));
+        }
+        Err(e) => eprintln!(
+            "[blocker] network filter: IPv6 listener bind failed (IPv6 traffic will not be filtered): {e}"
+        ),
     }
     if !any {
         STARTED.store(false, Ordering::SeqCst);

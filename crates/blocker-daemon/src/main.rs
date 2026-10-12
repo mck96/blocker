@@ -429,8 +429,12 @@ fn cli_status() {
                         println!("blocking_active : {}", status.blocking_active);
                         println!("reason          : {}", status.reason);
                         println!("dns_listening   : {}", status.dns_listening);
-                        println!("host rules      : {}", status.host_rule_count);
-                        println!("path rules      : {}", status.path_rule_count);
+                        println!("net_filter      : {}", status.network_filter_active);
+                        println!("block_page      : {}", status.block_page_active);
+                        println!(
+                            "rules           : {} domain, {} path, {} keyword",
+                            status.host_rule_count, status.path_rule_count, status.keyword_count
+                        );
                         println!("upstreams       : {}", status.upstreams.join(", "));
                         if let Some(rem) = status.session_remaining_secs {
                             println!("session left    : {}s", rem);
