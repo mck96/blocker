@@ -39,6 +39,14 @@ pub struct Config {
     #[serde(default = "default_true")]
     pub strict_block_doh: bool,
 
+    /// Network-level enforcement: transparently inspect outgoing TCP to ports
+    /// 80/443 (via nftables), read the hostname (HTTP Host / TLS SNI), and drop
+    /// blocked ones. Works in *every* browser with no per-browser setup and
+    /// defeats browser "secure DNS" (DoH), because the hostname is visible in
+    /// the TLS handshake regardless of how DNS was resolved.
+    #[serde(default)]
+    pub network_filter: bool,
+
     /// Unix timestamp (seconds) until which a focus session forces blocking on,
     /// regardless of `enforcement`. `None` when no session is running.
     #[serde(default)]
@@ -113,6 +121,7 @@ impl Default for Config {
             enforcement: Enforcement::Off,
             schedule: Schedule::default(),
             strict_block_doh: true,
+            network_filter: false,
             session_until: None,
             lock_session: false,
             break_minutes: default_break_minutes(),

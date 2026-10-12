@@ -142,6 +142,36 @@ its pointer within a few seconds so blocking is never silently bypassed. (If you
 pin specific upstreams in the config, those are respected instead of
 auto-tracking.)
 
+### Network-level enforcement (recommended — works in every browser, defeats DoH)
+
+DNS-based blocking has one real weakness: modern browsers can use their own
+**encrypted DNS (DoH/DoT, "Secure DNS")**, which bypasses the OS resolver
+entirely — so the sinkhole, `/etc/hosts` and `resolv.conf` never see the query
+and the site loads anyway.
+
+**Network-level enforcement** fixes this with no per-browser setup. Turn on
+*Enforcement reach → Network-level enforcement* in the GUI and the daemon:
+
+* uses **nftables** to transparently redirect outgoing TCP to ports 80/443 to a
+  local filter (recovering the real destination via `SO_ORIGINAL_DST`);
+* reads the hostname from the **TLS ClientHello (SNI)** on 443 and the **Host
+  header** on 80 — the SNI is visible *regardless of how DNS was resolved*, so
+  DoH does not help the site;
+* drops connections whose hostname matches a domain / subdomain / **keyword**
+  rule, and splices everything else straight through (it **fails open**);
+* drops UDP/443 (QUIC) so browsers fall back to TCP where the SNI is readable;
+* marks its own upstream connections so they are never re-intercepted (no loop).
+
+This works identically in **every** browser (and `curl`) with nothing to
+configure per-browser, and it is the most reliable way to actually block a site.
+All of its firewall rules are removed when the daemon stops.
+
+Limits, stated plainly: a specific **HTTPS path** (e.g. `x.com/elonmusk`) is not
+visible in the SNI — only the hostname is — so path rules still need the proxy.
+And if a site uses **Encrypted ClientHello (ECH)** the SNI is hidden too; ECH is
+not yet widespread, and dropping it/ its DNS can force a fallback, but it is the
+one case SNI filtering can't see through.
+
 ### Strict mode (secure DNS)
 
 Modern browsers can be configured to use their own encrypted DNS (DNS-over-HTTPS

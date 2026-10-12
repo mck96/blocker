@@ -13,6 +13,7 @@ pub struct Engine {
     inner: RwLock<Inner>,
     dns_listening: AtomicBool,
     block_page_serving: AtomicBool,
+    network_filter_active: AtomicBool,
     last_block: Mutex<Option<String>>,
     verbose: bool,
 }
@@ -42,6 +43,7 @@ impl Engine {
             inner: RwLock::new(inner),
             dns_listening: AtomicBool::new(false),
             block_page_serving: AtomicBool::new(false),
+            network_filter_active: AtomicBool::new(false),
             last_block: Mutex::new(None),
             verbose,
         }
@@ -66,6 +68,35 @@ impl Engine {
     /// Is the config asking for a block page?
     pub fn block_page_enabled(&self) -> bool {
         self.inner.read().unwrap().config.block_page
+    }
+
+    pub fn set_network_filter_active(&self, v: bool) {
+        self.network_filter_active.store(v, Ordering::Relaxed);
+    }
+
+    pub fn network_filter_enabled(&self) -> bool {
+        self.inner.read().unwrap().config.network_filter
+    }
+
+    /// Decide whether a hostname seen on the wire should be blocked, honouring
+    /// the current active state (enforcement/schedule/session/break).
+    pub fn should_block_host_now(&self, host: &str) -> bool {
+        self.should_block_host(host)
+    }
+
+    /// URL-level decision (host + path) for the HTTP path of the filter.
+    pub fn should_block_url_now(&self, host: &str, path: &str) -> bool {
+        let g = self.inner.read().unwrap();
+        if !g.active {
+            return false;
+        }
+        if g.ruleset.is_url_blocked(host, path) {
+            return true;
+        }
+        if g.config.strict_block_doh && g.doh_rules.iter().any(|r| r.host_matches(host)) {
+            return true;
+        }
+        false
     }
 
     /// Should blocked queries resolve to 127.0.0.1 (page) rather than 0.0.0.0
@@ -259,6 +290,7 @@ impl Engine {
             keyword_count: g.ruleset.keyword_count(),
             dns_listening: self.dns_listening.load(Ordering::Relaxed),
             block_page_active: g.config.block_page && self.block_page_serving.load(Ordering::Relaxed),
+            network_filter_active: self.network_filter_active.load(Ordering::Relaxed),
             upstreams: g.upstreams.clone(),
             config: g.config.clone(),
         }

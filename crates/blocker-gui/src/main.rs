@@ -132,6 +132,8 @@ impl eframe::App for App {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.enforcement_section(ui);
                 ui.separator();
+                self.network_section(ui);
+                ui.separator();
                 self.session_section(ui);
                 ui.separator();
                 self.rules_section(ui);
@@ -195,6 +197,14 @@ impl App {
                             .color(egui::Color32::from_rgb(40, 170, 90)),
                     );
                 }
+                if s.network_filter_active {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("net filter: on")
+                            .small()
+                            .color(egui::Color32::from_rgb(40, 170, 90)),
+                    );
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some((msg, t)) = &self.toast {
@@ -235,6 +245,44 @@ impl App {
                 self.command(Request::SetEnforcement { enforcement: e }, "Enforcement updated");
             }
         });
+    }
+
+    fn network_section(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Enforcement reach");
+        if ui
+            .checkbox(
+                &mut self.cfg.network_filter,
+                "Network-level enforcement (works in every browser, defeats Secure DNS)",
+            )
+            .changed()
+        {
+            self.dirty = true;
+        }
+        ui.label(
+            egui::RichText::new(
+                "Strongly recommended. Inspects outgoing connections at the network \
+                 layer (via nftables) and reads the hostname from the TLS handshake, \
+                 so blocking works in ALL browsers with no per-browser setup — even \
+                 when the browser uses its own encrypted DNS (DoH). Blocks whole \
+                 domains, subdomains and keywords. (A specific HTTPS path still needs \
+                 the proxy.)",
+            )
+            .small()
+            .weak(),
+        );
+        if let Some(s) = &self.status {
+            if self.cfg.network_filter && !s.network_filter_active {
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 150, 40),
+                    "⚠ Enabled in config but not active — click \"Apply changes\" (needs root daemon + nftables).",
+                );
+            } else if s.network_filter_active {
+                ui.colored_label(
+                    egui::Color32::from_rgb(40, 170, 90),
+                    "● Active — intercepting at the network layer.",
+                );
+            }
+        }
     }
 
     fn session_section(&mut self, ui: &mut egui::Ui) {

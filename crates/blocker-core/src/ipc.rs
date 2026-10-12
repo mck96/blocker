@@ -68,6 +68,9 @@ pub struct Status {
     /// are bound (so blocked hosts resolve to 127.0.0.1 and show the page).
     #[serde(default)]
     pub block_page_active: bool,
+    /// Whether network-level enforcement (nftables + SNI/Host filter) is on.
+    #[serde(default)]
+    pub network_filter_active: bool,
     /// The upstream resolvers currently in use.
     pub upstreams: Vec<String>,
     pub config: Config,

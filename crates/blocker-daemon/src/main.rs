@@ -7,6 +7,7 @@
 mod blockpage;
 mod dns;
 mod engine;
+mod netfilter;
 mod system;
 
 use std::ffi::CString;
@@ -109,6 +110,9 @@ fn main() {
         if let Some(ca) = &ca {
             blockpage::start(engine.clone(), ca.clone());
         }
+    }
+    if engine.network_filter_enabled() {
+        netfilter::apply(&engine, true);
     }
     sync_side_effects(&engine);
     start_ticker(engine.clone());
@@ -336,6 +340,8 @@ fn dispatch(req: Request, engine: &Arc<Engine>, ca: &Option<Arc<blocker_tls::Ca>
                     blockpage::start(engine.clone(), ca.clone());
                 }
             }
+            // Apply network-filter enable/disable to match the new config.
+            netfilter::apply(engine, engine.network_filter_enabled());
             sync_side_effects(engine);
             Response::Ok {
                 status: engine.status(),
@@ -400,6 +406,7 @@ fn write_response(mut stream: UnixStream, resp: &Response) {
 }
 
 fn cleanup(engine: &Engine) {
+    netfilter::remove_nft();
     let _ = system::apply_hosts(&[]);
     if let Err(e) = system::uninstall_resolver() {
         eprintln!("[blocker] warning: could not restore resolv.conf: {e}");
