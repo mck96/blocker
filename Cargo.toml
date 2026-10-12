@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/blocker-core",
+    "crates/blocker-tls",
     "crates/blocker-daemon",
     "crates/blocker-gui",
     "crates/blocker-proxy",

@@ -79,6 +79,14 @@ impl Filter {
         let g = self.inner.lock().unwrap();
         g.ruleset.is_url_blocked(host, path)
     }
+
+    pub fn block_title(&self) -> String {
+        self.inner.lock().unwrap().config.block_title.clone()
+    }
+
+    pub fn block_message(&self) -> String {
+        self.inner.lock().unwrap().config.block_message.clone()
+    }
 }
 
 fn now_unix() -> i64 {

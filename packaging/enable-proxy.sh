@@ -9,9 +9,9 @@
 set -euo pipefail
 
 CA_SRC="/etc/blocker/ca.crt"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 msg() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*"; }
 
 if [[ $EUID -ne 0 ]]; then
     echo "Please run as root:  sudo $0"
@@ -21,7 +21,7 @@ fi
 # The proxy generates the CA on first start; make sure it exists.
 if [[ ! -f "$CA_SRC" ]]; then
     msg "Generating the local CA (starting the proxy once)…"
-    systemctl start blocker-proxy || /usr/local/bin/blocker-proxy --ca-path >/dev/null 2>&1 || true
+    systemctl start blocker-proxy 2>/dev/null || true
     sleep 1
 fi
 if [[ ! -f "$CA_SRC" ]]; then
@@ -29,27 +29,18 @@ if [[ ! -f "$CA_SRC" ]]; then
     exit 1
 fi
 
-msg "Installing the Blocker CA into the system trust store…"
-if command -v update-ca-certificates >/dev/null 2>&1; then
-    # Debian / Ubuntu
-    install -D -m 0644 "$CA_SRC" /usr/local/share/ca-certificates/blocker.crt
-    update-ca-certificates
-elif command -v update-ca-trust >/dev/null 2>&1; then
-    # Fedora / RHEL / Arch
-    install -D -m 0644 "$CA_SRC" /etc/pki/ca-trust/source/anchors/blocker.crt
-    update-ca-trust
-else
-    warn "Unknown trust-store tooling; install $CA_SRC into your system CA store manually."
-fi
+msg "Trusting the local CA…"
+"$HERE/trust-ca.sh"
 
 msg "Enabling and starting the proxy service…"
 systemctl enable --now blocker-proxy
 
 cat <<'EOF'
 
-==> Path-level blocking is now armed. Two things remain (one-time):
+==> Path-level blocking is armed and the CA is trusted (see above for the
+    per-browser step).
 
-1) Point your system / browser proxy at the filter:
+One thing remains: point your system / browser proxy at the filter.
 
    GNOME (most desktops):
      gsettings set org.gnome.system.proxy mode 'manual'
@@ -61,15 +52,6 @@ cat <<'EOF'
    Or, for terminal apps, add to your shell profile:
      export http_proxy=http://127.0.0.1:8080
      export https_proxy=http://127.0.0.1:8080
-
-2) Make your browser trust the CA (browsers often use their own store):
-
-   Firefox:  Settings -> Privacy & Security -> Certificates ->
-             enable "Query OCSP…"? no — set about:config
-             security.enterprise_roots.enabled = true   (trusts the system CA)
-
-   Chrome/Chromium (NSS), run AS YOUR USER (not root):
-     certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "Blocker CA" -i /etc/blocker/ca.crt
 
 Domain and subdomain blocking work WITHOUT any of the above — this is only for
 path rules on HTTPS sites.

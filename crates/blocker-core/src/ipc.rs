@@ -25,6 +25,9 @@ pub enum Request {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case")]
+// The `Ok` variant is intentionally much larger than `Error`; this is a small,
+// short-lived IPC message, so the size difference does not matter.
+#[allow(clippy::large_enum_variant)]
 pub enum Response {
     Ok { status: Status },
     Error { message: String },
@@ -43,8 +46,12 @@ pub struct Status {
     pub session_locked: bool,
     pub host_rule_count: usize,
     pub path_rule_count: usize,
+    pub keyword_count: usize,
     /// Whether the DNS sinkhole socket is bound and serving.
     pub dns_listening: bool,
+    /// Whether the motivational block page is enabled *and* its local servers
+    /// are bound (so blocked hosts resolve to 127.0.0.1 and show the page).
+    pub block_page_active: bool,
     /// The upstream resolvers currently in use.
     pub upstreams: Vec<String>,
     pub config: Config,

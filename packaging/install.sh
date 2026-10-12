@@ -67,6 +67,8 @@ echo "  • CLI check:       blockerd status"
 echo "  • Launch the GUI:  blocker-gui   (or from your app menu)"
 echo "  • OPTIONAL path-level (URL) blocking, e.g. x.com/elonmusk/*:"
 echo "        sudo ./packaging/enable-proxy.sh"
+echo "  • OPTIONAL motivational block page on HTTPS sites: enable it in the"
+echo "    GUI, then trust the local CA:  sudo ./packaging/trust-ca.sh"
 echo
 if [[ -n "$TARGET_USER" && "$TARGET_USER" != "root" ]]; then
     warn "Log out and back in (or run 'newgrp blocker') so your new group"

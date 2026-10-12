@@ -8,6 +8,7 @@ pub mod rule;
 pub mod config;
 pub mod schedule;
 pub mod ipc;
+pub mod blockpage;
 
 pub use config::{Config, Enforcement};
 pub use rule::{HostMatch, ParsedRule, SiteRule};

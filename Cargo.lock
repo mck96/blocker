@@ -527,7 +527,9 @@ name = "blocker-daemon"
 version = "0.1.0"
 dependencies = [
  "blocker-core",
+ "blocker-tls",
  "libc",
+ "rustls",
  "serde",
  "serde_json",
 ]
@@ -547,13 +549,22 @@ name = "blocker-proxy"
 version = "0.1.0"
 dependencies = [
  "blocker-core",
+ "blocker-tls",
  "libc",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "blocker-tls"
+version = "0.1.0"
+dependencies = [
  "rcgen",
  "rustls",
  "rustls-pemfile",
  "rustls-pki-types",
- "serde",
- "serde_json",
  "webpki-roots 0.26.11",
 ]
 

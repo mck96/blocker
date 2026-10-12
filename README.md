@@ -32,11 +32,17 @@ Written in Rust. Three binaries:
 * **A single exact host.** Prefix with `=`, e.g. `=mail.google.com`, to block
   *only* that host and leave `calendar.google.com` alone.
 
-* **A URL path / profile.** e.g. `x.com/elonmusk/*` or `x.com/elonmusk`.
-  Path rules do **not** take down the whole domain — the rest of `x.com` keeps
-  working. (Path enforcement needs the optional proxy component; see
-  [Path-level blocking](#path-level-blocking-the-honest-part) below for exactly
-  what is and isn't possible.)
+* **A URL path / profile.** e.g. `x.com/elonmusk/*`, `x.com/elonmusk`, or a
+  glob `x.com/*elonmusk*`. Path rules do **not** take down the whole domain —
+  the rest of `x.com` keeps working. (Path enforcement needs the optional proxy
+  component; see [Path-level blocking](#path-level-blocking-the-honest-part)
+  below for exactly what is and isn't possible.)
+
+* **A keyword, anywhere.** `~elonmusk` blocks any hostname *or* URL that
+  contains that substring — e.g. `elonmusk.fan`, `music.youtube.com` (for
+  `~youtube`), or `x.com/elonmusk/status/123`. This is the "block a part
+  contained in the domain/URL" mode: at the DNS layer it matches hostnames; for
+  traffic the proxy sees it also matches the path.
 
 ### Pattern syntax, by example
 
@@ -46,6 +52,8 @@ youtube.com            domain + ALL subdomains (incl. music.youtube.com)
 =mail.google.com       this exact host only, no subdomains
 reddit.com/r/all       a path on a host (and all deeper paths)
 x.com/elonmusk/*       a path prefix; trailing /* is optional
+x.com/*elonmusk*       a path glob (contains "elonmusk" anywhere in the path)
+~elonmusk              a KEYWORD: matches anywhere in a hostname or URL
 https://x.com/foo      a scheme is accepted and ignored
 ```
 
@@ -85,6 +93,33 @@ Force blocking **on** for a fixed duration regardless of the mode above — a
 Pomodoro / deep-work button. Optionally **lock** a session so it cannot be
 cancelled early (a commitment device): once locked it only ends when the timer
 runs out.
+
+### Motivational block page
+
+By default a blocked site fails silently (its address resolves to `0.0.0.0`).
+Turn on **"Motivational block page"** in the GUI and blocked sites instead show
+a full-screen page with your own title and message — a small nudge back to what
+matters. It works in every browser because the daemon runs tiny local servers
+on `127.0.0.1:80` and `:443` and resolves blocked hosts there.
+
+For the page to appear cleanly on HTTPS sites (which is almost everything), the
+browser must trust the local CA — run `sudo ./packaging/trust-ca.sh` once (and
+the per-browser step it prints). Without it, HTTPS sites show a certificate
+warning instead of the page; plain-HTTP sites and all DNS blocking are
+unaffected. Edit the title and message in the GUI's "Motivational block page"
+section.
+
+### Works alongside your VPN
+
+Blocker does not touch routing or firewall rules, so it does not conflict with a
+VPN/WireGuard/OpenVPN tunnel. For DNS it actively coexists: in its default
+auto-detect mode it continuously tracks the system's *real* resolver, so when a
+VPN connects and changes DNS, Blocker automatically forwards non-blocked queries
+through the **VPN's** resolver (VPN-internal names keep resolving; no DNS leak).
+If a VPN client or NetworkManager rewrites `/etc/resolv.conf`, Blocker re-asserts
+its pointer within a few seconds so blocking is never silently bypassed. (If you
+pin specific upstreams in the config, those are respected instead of
+auto-tracking.)
 
 ### Strict mode (secure DNS)
 
@@ -204,6 +239,7 @@ crates/
   blocker-daemon/  the privileged DNS sinkhole + system integration  -> blockerd
   blocker-gui/     the egui/eframe desktop front-end                 -> blocker-gui
   blocker-proxy/   optional filtering proxy for path rules (TLS MITM) -> blocker-proxy
+  blocker-tls/     shared local-CA + rustls config (used by daemon and proxy)
 packaging/
   blockerd.service       systemd unit (DNS daemon)
   blocker-proxy.service  systemd unit (optional path-rule proxy)
@@ -211,6 +247,8 @@ packaging/
   uninstall.sh           stop + remove + revert everything
   enable-proxy.sh        opt in to path-level blocking (CA + proxy)
   disable-proxy.sh       opt back out
+  trust-ca.sh            trust the local CA (for the HTTPS block page)
+  untrust-ca.sh          remove the local CA from the trust store
   blocker-gui.desktop    app-menu launcher
 ```
 

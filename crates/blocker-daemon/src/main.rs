@@ -4,6 +4,7 @@
 //! /etc/hosts block, and /etc/resolv.conf, and exposes a small Unix-socket IPC
 //! surface for the GUI. On shutdown it reverses every system change.
 
+mod blockpage;
 mod dns;
 mod engine;
 mod system;
@@ -89,7 +90,26 @@ fn main() {
         }
     }
 
+    // Initialise the local CA (shared with the proxy) so the HTTPS block page
+    // can present trusted certificates. Creating it is harmless even when the
+    // block page is off; the user trusts it when they opt in.
+    blocker_tls::install_crypto_provider();
+    let ca = match blocker_tls::Ca::load_or_create() {
+        Ok(c) => Some(Arc::new(c)),
+        Err(e) => {
+            eprintln!("[blocker] warning: could not init local CA ({e}); HTTPS block page disabled");
+            None
+        }
+    };
+
     install_signal_handlers();
+    // Start the block-page servers if enabled now (can also be started later
+    // via SetConfig when the user turns the page on).
+    if engine.block_page_enabled() {
+        if let Some(ca) = &ca {
+            blockpage::start(engine.clone(), ca.clone());
+        }
+    }
     sync_side_effects(&engine);
     start_ticker(engine.clone());
 
@@ -103,7 +123,7 @@ fn main() {
     };
     eprintln!("[blocker] control socket ready at {SOCKET_PATH}");
 
-    serve_ipc(listener, engine.clone());
+    serve_ipc(listener, engine.clone(), ca);
 
     eprintln!("[blocker] shutting down, reverting system changes…");
     cleanup(&engine);
@@ -156,6 +176,7 @@ fn sync_side_effects(engine: &Engine) {
 fn start_ticker(engine: Arc<Engine>) {
     std::thread::spawn(move || {
         let mut last_persisted = engine.config_snapshot().to_json();
+        let mut ticks: u64 = 0;
         loop {
             std::thread::sleep(Duration::from_secs(5));
             if TERMINATE.load(Ordering::SeqCst) {
@@ -170,8 +191,45 @@ fn start_ticker(engine: Arc<Engine>) {
                 persist_config(&engine.config_snapshot());
                 last_persisted = snap;
             }
+            // VPN / network coexistence (every ~10s).
+            ticks += 1;
+            if ticks.is_multiple_of(2) {
+                maintain_resolver(&engine);
+            }
         }
     });
+}
+
+/// Keep coexisting with VPNs / network managers:
+///
+/// * In auto-detect mode (`upstream_dns` empty) adopt the current real
+///   resolvers — e.g. a VPN's DNS — so non-blocked queries flow through them
+///   and VPN-internal names keep resolving with no DNS leak.
+/// * Always re-assert our `/etc/resolv.conf` pointer if something external
+///   (a VPN client, NetworkManager, resolvconf) replaced it, otherwise our
+///   interception would be silently bypassed.
+fn maintain_resolver(engine: &Engine) {
+    // Only meddle with resolv.conf if we actually took it over (DNS bound).
+    if !engine.dns_listening() {
+        return;
+    }
+    // Detect current real resolvers FIRST (a VPN may have just written its DNS
+    // into resolv.conf), then re-assert our pointer so we don't clobber it
+    // before harvesting.
+    if engine.config_snapshot().upstream_dns.is_empty() {
+        let mut detected = system::detect_upstreams();
+        for fallback in ["1.1.1.1:53", "9.9.9.9:53"] {
+            if !detected.iter().any(|u| u == fallback) {
+                detected.push(fallback.to_string());
+            }
+        }
+        if engine.set_upstreams(detected.clone()) {
+            eprintln!("[blocker] upstream resolvers updated: {}", detected.join(", "));
+        }
+    }
+    if system::reassert_resolver_if_hijacked() {
+        eprintln!("[blocker] resolv.conf was changed externally; re-asserted sinkhole pointer");
+    }
 }
 
 fn setup_socket() -> std::io::Result<UnixListener> {
@@ -215,7 +273,7 @@ fn group_gid(name: &str) -> Option<u32> {
 }
 
 /// Accept-and-dispatch loop. Non-blocking + poll so SIGTERM is observed.
-fn serve_ipc(listener: UnixListener, engine: Arc<Engine>) {
+fn serve_ipc(listener: UnixListener, engine: Arc<Engine>, ca: Option<Arc<blocker_tls::Ca>>) {
     use std::os::unix::io::AsRawFd;
     let fd = listener.as_raw_fd();
     loop {
@@ -234,7 +292,8 @@ fn serve_ipc(listener: UnixListener, engine: Arc<Engine>) {
         match listener.accept() {
             Ok((stream, _addr)) => {
                 let engine = engine.clone();
-                std::thread::spawn(move || handle_client(stream, engine));
+                let ca = ca.clone();
+                std::thread::spawn(move || handle_client(stream, engine, ca));
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(_) => continue,
@@ -242,7 +301,7 @@ fn serve_ipc(listener: UnixListener, engine: Arc<Engine>) {
     }
 }
 
-fn handle_client(stream: UnixStream, engine: Arc<Engine>) {
+fn handle_client(stream: UnixStream, engine: Arc<Engine>, ca: Option<Arc<blocker_tls::Ca>>) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let mut reader = BufReader::new(match stream.try_clone() {
         Ok(s) => s,
@@ -259,11 +318,11 @@ fn handle_client(stream: UnixStream, engine: Arc<Engine>) {
             return;
         }
     };
-    let resp = dispatch(req, &engine);
+    let resp = dispatch(req, &engine, &ca);
     write_response(stream, &resp);
 }
 
-fn dispatch(req: Request, engine: &Engine) -> Response {
+fn dispatch(req: Request, engine: &Arc<Engine>, ca: &Option<Arc<blocker_tls::Ca>>) -> Response {
     match req {
         Request::Status => Response::Ok {
             status: engine.status(),
@@ -271,6 +330,12 @@ fn dispatch(req: Request, engine: &Engine) -> Response {
         Request::SetConfig { config } => {
             engine.replace_config(config);
             persist_config(&engine.config_snapshot());
+            // If the user just turned the block page on, start its servers.
+            if engine.block_page_enabled() {
+                if let Some(ca) = ca {
+                    blockpage::start(engine.clone(), ca.clone());
+                }
+            }
             sync_side_effects(engine);
             Response::Ok {
                 status: engine.status(),

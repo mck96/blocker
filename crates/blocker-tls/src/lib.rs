@@ -1,8 +1,8 @@
-//! A locally-generated certificate authority used to intercept (MITM) TLS for
-//! the specific hosts that have path rules. The CA cert is written to
-//! `/etc/blocker/ca.crt`; the user installs that into their trust store (and
-//! the browser's) to enable HTTPS path blocking. Leaf certificates are minted
-//! on demand per SNI host and cached in memory.
+//! A locally-generated certificate authority used to terminate TLS locally:
+//! for the proxy's path-rule interception and for the daemon's HTTPS block
+//! page. The CA cert is written to `/etc/blocker/ca.crt`; the user installs it
+//! into their trust store (and the browser's). Leaf certificates are minted on
+//! demand per SNI host and cached in memory.
 
 use std::collections::HashMap;
 use std::fs;
@@ -22,6 +22,12 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
 pub const CA_CERT_PATH: &str = "/etc/blocker/ca.crt";
 pub const CA_KEY_PATH: &str = "/etc/blocker/ca.key";
+
+/// Install the ring crypto provider as rustls' process default. Call once at
+/// startup before building any rustls config. Idempotent.
+pub fn install_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
 
 pub struct Ca {
     issuer_cert: rcgen::Certificate,

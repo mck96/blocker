@@ -139,26 +139,6 @@ pub fn rebuild_origin_request(head: &[u8], method: &str, path: &str, version: &s
     out.into_bytes()
 }
 
-/// The page shown when a request is blocked.
-pub fn block_response() -> Vec<u8> {
-    let body = "<!doctype html><html><head><meta charset=utf-8>\
-        <title>Blocked</title></head>\
-        <body style=\"font-family:system-ui,sans-serif;max-width:40rem;margin:4rem auto;color:#333\">\
-        <h1>\u{1f6e1}\u{fe0f} Blocked</h1>\
-        <p>This page is blocked by <strong>Blocker</strong>.</p>\
-        <p style=\"color:#888\">Open the Blocker app to manage your blocklist.</p>\
-        </body></html>";
-    format!(
-        "HTTP/1.1 403 Forbidden\r\n\
-         Content-Type: text/html; charset=utf-8\r\n\
-         Content-Length: {}\r\n\
-         Connection: close\r\n\r\n{}",
-        body.len(),
-        body
-    )
-    .into_bytes()
-}
-
 /// Copy everything from `src` to `dst` until EOF.
 pub fn pump_to_eof<R: Read, W: Write>(src: &mut R, dst: &mut W) -> std::io::Result<()> {
     let mut buf = [0u8; 16 * 1024];

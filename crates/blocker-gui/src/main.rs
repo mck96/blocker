@@ -138,6 +138,8 @@ impl eframe::App for App {
                 ui.separator();
                 self.schedule_section(ui);
                 ui.separator();
+                self.block_page_section(ui);
+                ui.separator();
                 self.options_section(ui);
             });
         });
@@ -177,7 +179,22 @@ impl App {
                 };
                 ui.label(dns.small());
                 ui.separator();
-                ui.label(egui::RichText::new(format!("{} host rules · {} path rules", s.host_rule_count, s.path_rule_count)).small().weak());
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} domain · {} path · {} keyword",
+                        s.host_rule_count, s.path_rule_count, s.keyword_count
+                    ))
+                    .small()
+                    .weak(),
+                );
+                if s.block_page_active {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new("block page: on")
+                            .small()
+                            .color(egui::Color32::from_rgb(40, 170, 90)),
+                    );
+                }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some((msg, t)) = &self.toast {
@@ -281,7 +298,8 @@ impl App {
             egui::RichText::new(
                 "Examples:  youtube.com  (also blocks music.youtube.com and all \
                  subdomains)  ·  *.reddit.com  ·  =mail.google.com (exact host)  ·  \
-                 x.com/elonmusk/* (path — proxy only)",
+                 x.com/elonmusk/* and x.com/*elonmusk* (path — needs proxy)  ·  \
+                 ~elonmusk (keyword: matches it anywhere in a host or URL)",
             )
             .small()
             .weak(),
@@ -326,10 +344,14 @@ impl App {
                     ui.label(text);
                     // classify for the user
                     if let Some(parsed) = rule.parse() {
-                        let tag = if parsed.is_host_level() {
-                            egui::RichText::new("[domain]").small().weak()
-                        } else {
-                            egui::RichText::new("[path · proxy]").small().color(egui::Color32::from_rgb(180, 140, 40))
+                        let tag = match parsed.kind_label() {
+                            "path" => egui::RichText::new("[path · proxy]")
+                                .small()
+                                .color(egui::Color32::from_rgb(180, 140, 40)),
+                            "keyword" => egui::RichText::new("[keyword]")
+                                .small()
+                                .color(egui::Color32::from_rgb(120, 150, 210)),
+                            _ => egui::RichText::new("[domain]").small().weak(),
                         };
                         ui.label(tag);
                     } else {
@@ -426,6 +448,58 @@ impl App {
             if changed {
                 self.dirty = true;
             }
+        });
+    }
+
+    fn block_page_section(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Motivational block page", |ui| {
+            if ui
+                .checkbox(
+                    &mut self.cfg.block_page,
+                    "Show a page when a blocked site is opened (instead of a silent failure)",
+                )
+                .changed()
+            {
+                self.dirty = true;
+            }
+            ui.label(
+                egui::RichText::new(
+                    "Blocked sites then resolve to a local page server. For the page \
+                     to appear cleanly on HTTPS sites you must trust the local CA \
+                     (run packaging/trust-ca.sh). Otherwise the browser shows a \
+                     certificate warning.",
+                )
+                .small()
+                .weak(),
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Title");
+                if ui
+                    .add(egui::TextEdit::singleline(&mut self.cfg.block_title).desired_width(320.0))
+                    .changed()
+                {
+                    self.dirty = true;
+                }
+            });
+            ui.label("Message");
+            if ui
+                .add(
+                    egui::TextEdit::multiline(&mut self.cfg.block_message)
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY),
+                )
+                .changed()
+            {
+                self.dirty = true;
+            }
+            ui.label(
+                egui::RichText::new(
+                    "Changes are saved with \"Apply changes\" in the Blocked sites section.",
+                )
+                .small()
+                .weak(),
+            );
         });
     }
 

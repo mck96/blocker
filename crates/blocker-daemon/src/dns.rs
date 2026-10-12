@@ -99,7 +99,7 @@ fn handle_query(query: &[u8], engine: &Engine, tcp: bool) -> Option<Vec<u8>> {
         Some(q) => {
             if engine.should_block_host(&q.name) {
                 engine.log_block(&q.name);
-                Some(build_block_response(query, &q))
+                Some(build_block_response(query, &q, engine.use_block_page()))
             } else {
                 forward(query, engine, tcp).or_else(|| Some(build_servfail(query)))
             }
@@ -161,9 +161,11 @@ fn parse_question(buf: &[u8]) -> Option<Question> {
     })
 }
 
-/// Build a response that sinkholes the query: `0.0.0.0` for A, `::` for AAAA,
-/// NODATA (NOERROR, no answers) for everything else.
-fn build_block_response(query: &[u8], q: &Question) -> Vec<u8> {
+/// Build a response that sinkholes the query. When `to_local` is true the
+/// answer points at 127.0.0.1 / ::1 (so the local block-page servers can show
+/// a page); otherwise 0.0.0.0 / :: for a silent, instant failure. Non-address
+/// queries get NODATA (NOERROR, no answers).
+fn build_block_response(query: &[u8], q: &Question, to_local: bool) -> Vec<u8> {
     let mut resp = Vec::with_capacity(query.len() + 16);
     // Header.
     resp.extend_from_slice(&query[0..2]); // ID
@@ -190,10 +192,19 @@ fn build_block_response(query: &[u8], q: &Question) -> Vec<u8> {
         resp.extend_from_slice(&60u32.to_be_bytes()); // TTL 60s
         if q.qtype == 1 {
             resp.extend_from_slice(&[0x00, 0x04]); // RDLENGTH 4
-            resp.extend_from_slice(&Ipv4Addr::UNSPECIFIED.octets());
+            let v4 = if to_local {
+                Ipv4Addr::LOCALHOST
+            } else {
+                Ipv4Addr::UNSPECIFIED
+            };
+            resp.extend_from_slice(&v4.octets());
         } else {
             resp.extend_from_slice(&[0x00, 0x10]); // RDLENGTH 16
-            resp.extend_from_slice(&[0u8; 16]); // ::
+            let mut v6 = [0u8; 16]; // ::
+            if to_local {
+                v6[15] = 1; // ::1
+            }
+            resp.extend_from_slice(&v6);
         }
     }
     resp
@@ -303,7 +314,7 @@ mod tests {
     fn block_response_is_zero_ip() {
         let q = make_query("youtube.com", 1);
         let parsed = parse_question(&q).unwrap();
-        let resp = build_block_response(&q, &parsed);
+        let resp = build_block_response(&q, &parsed, false);
         // QR bit set.
         assert_eq!(resp[2] & 0x80, 0x80);
         // ANCOUNT == 1.
@@ -314,10 +325,19 @@ mod tests {
     }
 
     #[test]
+    fn block_response_local_ip_when_page() {
+        let q = make_query("youtube.com", 1);
+        let parsed = parse_question(&q).unwrap();
+        let resp = build_block_response(&q, &parsed, true);
+        let n = resp.len();
+        assert_eq!(&resp[n - 4..], &[127, 0, 0, 1]);
+    }
+
+    #[test]
     fn block_response_aaaa_nodata_for_txt() {
         let q = make_query("youtube.com", 16); // TXT
         let parsed = parse_question(&q).unwrap();
-        let resp = build_block_response(&q, &parsed);
+        let resp = build_block_response(&q, &parsed, false);
         assert_eq!(u16::from_be_bytes([resp[6], resp[7]]), 0); // NODATA
     }
 }

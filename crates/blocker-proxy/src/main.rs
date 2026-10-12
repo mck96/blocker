@@ -10,7 +10,6 @@
 //! Configure your system/browser to use this as the HTTP and HTTPS proxy
 //! (default 127.0.0.1:8080). See the README.
 
-mod ca;
 mod filter;
 mod http;
 
@@ -22,7 +21,8 @@ use std::time::Duration;
 use rustls::{ClientConnection, ServerConnection, StreamOwned};
 use rustls_pki_types::ServerName;
 
-use crate::ca::Ca;
+use blocker_tls::{self as tls, Ca};
+
 use crate::filter::Filter;
 use crate::http::*;
 
@@ -43,7 +43,7 @@ fn main() {
                 }
             }
             "--ca-path" => {
-                println!("{}", ca::CA_CERT_PATH);
+                println!("{}", tls::CA_CERT_PATH);
                 return;
             }
             "-h" | "--help" => {
@@ -58,13 +58,7 @@ fn main() {
         }
     }
 
-    // Install the ring crypto provider for rustls.
-    if rustls::crypto::ring::default_provider()
-        .install_default()
-        .is_err()
-    {
-        eprintln!("[proxy] warning: a rustls crypto provider was already installed");
-    }
+    tls::install_crypto_provider();
 
     let ca = match Ca::load_or_create() {
         Ok(c) => Arc::new(c),
@@ -76,8 +70,8 @@ fn main() {
 
     let ctx = Arc::new(Ctx {
         filter: Arc::new(Filter::new()),
-        server_cfg: ca::server_config(ca.clone()),
-        client_cfg: ca::client_config(),
+        server_cfg: tls::server_config(ca.clone()),
+        client_cfg: tls::client_config(),
     });
 
     let listener = match TcpListener::bind(&listen) {
@@ -89,7 +83,7 @@ fn main() {
     };
 
     eprintln!("[proxy] listening on {listen}");
-    eprintln!("[proxy] CA certificate: {}", ca::CA_CERT_PATH);
+    eprintln!("[proxy] CA certificate: {}", tls::CA_CERT_PATH);
     eprintln!(
         "[proxy] To enable HTTPS path blocking, trust that CA and point your \
          system/browser HTTP+HTTPS proxy at {listen}."
@@ -119,6 +113,15 @@ fn print_help() {
     );
 }
 
+/// Build the motivational block-page HTTP response using the current config.
+fn block_bytes(ctx: &Ctx, host: &str) -> Vec<u8> {
+    blocker_core::blockpage::http_response(
+        &ctx.filter.block_title(),
+        &ctx.filter.block_message(),
+        host,
+    )
+}
+
 fn handle(mut client: TcpStream, ctx: &Ctx) -> std::io::Result<()> {
     client.set_read_timeout(Some(Duration::from_secs(30)))?;
     client.set_write_timeout(Some(Duration::from_secs(30)))?;
@@ -144,15 +147,17 @@ fn handle_http(mut client: TcpStream, rl: RequestLine, head: Vec<u8>, ctx: &Ctx)
     let (host, port, path) = match parse_absolute_uri(&rl.target) {
         Some(v) => v,
         None => {
-            // Not something we proxy (e.g. origin-form to us directly).
-            let _ = client.write_all(&block_response());
+            // Not something we proxy (e.g. origin-form sent directly to us).
+            let _ = client.write_all(
+                b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
             return Ok(());
         }
     };
 
     let active = ctx.filter.active();
     if active && ctx.filter.url_blocked(&host, &path) {
-        client.write_all(&block_response())?;
+        client.write_all(&block_bytes(ctx, &host))?;
         return Ok(());
     }
 
@@ -170,13 +175,9 @@ fn handle_connect(mut client: TcpStream, target: &str, ctx: &Ctx) -> std::io::Re
     let (host, port) = split_host_port(target, 443);
     let active = ctx.filter.active();
 
-    if active && ctx.filter.host_fully_blocked(&host) {
-        // Defence in depth; normally DNS already sinkholed this host.
-        client.write_all(&block_response())?;
-        return Ok(());
-    }
-
-    if active && ctx.filter.host_has_path_rule(&host) {
+    // Intercept if the host is fully blocked (show the page over TLS) or has a
+    // path rule to evaluate. Everything else is a transparent tunnel.
+    if active && (ctx.filter.host_fully_blocked(&host) || ctx.filter.host_has_path_rule(&host)) {
         return mitm_connect(client, &host, port, ctx);
     }
 
@@ -221,8 +222,8 @@ fn mitm_connect(mut client: TcpStream, host: &str, port: u16, ctx: &Ctx) -> std:
     };
     let path = target_path(&rl.target);
 
-    if ctx.filter.url_blocked(host, &path) {
-        let _ = client_tls.write_all(&block_response());
+    if ctx.filter.host_fully_blocked(host) || ctx.filter.url_blocked(host, &path) {
+        let _ = client_tls.write_all(&block_bytes(ctx, host));
         let _ = client_tls.flush();
         return Ok(());
     }

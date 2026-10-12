@@ -12,6 +12,7 @@ use blocker_core::rule::{doh_bootstrap_hosts, ParsedRule, RuleSet};
 pub struct Engine {
     inner: RwLock<Inner>,
     dns_listening: AtomicBool,
+    block_page_serving: AtomicBool,
     last_block: Mutex<Option<String>>,
     verbose: bool,
 }
@@ -40,6 +41,7 @@ impl Engine {
         Engine {
             inner: RwLock::new(inner),
             dns_listening: AtomicBool::new(false),
+            block_page_serving: AtomicBool::new(false),
             last_block: Mutex::new(None),
             verbose,
         }
@@ -49,8 +51,51 @@ impl Engine {
         self.dns_listening.store(v, Ordering::Relaxed);
     }
 
+    pub fn dns_listening(&self) -> bool {
+        self.dns_listening.load(Ordering::Relaxed)
+    }
+
+    pub fn set_block_page_serving(&self, v: bool) {
+        self.block_page_serving.store(v, Ordering::Relaxed);
+    }
+
+    pub fn block_page_serving(&self) -> bool {
+        self.block_page_serving.load(Ordering::Relaxed)
+    }
+
+    /// Is the config asking for a block page?
+    pub fn block_page_enabled(&self) -> bool {
+        self.inner.read().unwrap().config.block_page
+    }
+
+    /// Should blocked queries resolve to 127.0.0.1 (page) rather than 0.0.0.0
+    /// (silent)? Only when enabled *and* the local page servers are up.
+    pub fn use_block_page(&self) -> bool {
+        self.block_page_enabled() && self.block_page_serving()
+    }
+
+    pub fn block_title(&self) -> String {
+        self.inner.read().unwrap().config.block_title.clone()
+    }
+
+    pub fn block_message(&self) -> String {
+        self.inner.read().unwrap().config.block_message.clone()
+    }
+
     pub fn upstreams(&self) -> Vec<String> {
         self.inner.read().unwrap().upstreams.clone()
+    }
+
+    /// Replace the active upstream resolvers (used when the network/VPN
+    /// changes). Returns true if they actually changed.
+    pub fn set_upstreams(&self, upstreams: Vec<String>) -> bool {
+        let mut g = self.inner.write().unwrap();
+        if g.upstreams == upstreams {
+            false
+        } else {
+            g.upstreams = upstreams;
+            true
+        }
     }
 
     /// Per-query decision used by the DNS server.
@@ -170,7 +215,9 @@ impl Engine {
             session_locked: g.config.lock_session && session_running(&g.config),
             host_rule_count: g.ruleset.host_rule_count(),
             path_rule_count: g.ruleset.path_rule_count(),
+            keyword_count: g.ruleset.keyword_count(),
             dns_listening: self.dns_listening.load(Ordering::Relaxed),
+            block_page_active: g.config.block_page && self.block_page_serving.load(Ordering::Relaxed),
             upstreams: g.upstreams.clone(),
             config: g.config.clone(),
         }

@@ -120,6 +120,23 @@ fn write_our_resolv() -> std::io::Result<()> {
     Ok(())
 }
 
+/// If something external (a VPN client, NetworkManager, resolvconf) replaced
+/// our managed `/etc/resolv.conf`, re-assert our sinkhole pointer. Returns true
+/// if we had to rewrite it. Only acts when we previously installed (a backup
+/// exists), so we never hijack resolution we didn't set up.
+pub fn reassert_resolver_if_hijacked() -> bool {
+    if !Path::new(RESOLV_BACKUP).exists() {
+        return false;
+    }
+    let current = fs::read_to_string(RESOLV_CONF).unwrap_or_default();
+    if current.contains("Managed by blocker") {
+        return false; // still ours
+    }
+    // Someone replaced it; take it back over. (Upstreams were harvested by the
+    // caller before this point.)
+    write_our_resolv().is_ok()
+}
+
 /// Restore the original resolv.conf captured by `install_resolver`.
 pub fn uninstall_resolver() -> std::io::Result<()> {
     if !Path::new(RESOLV_BACKUP).exists() {

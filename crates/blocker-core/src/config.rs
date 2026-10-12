@@ -48,10 +48,33 @@ pub struct Config {
     /// commitment device). The GUI greys out "Stop session".
     #[serde(default)]
     pub lock_session: bool,
+
+    /// Show a motivational block page instead of a silent connection failure.
+    /// When on, blocked hosts resolve to 127.0.0.1 and the daemon serves the
+    /// page on :80 and (via the local CA) :443.
+    #[serde(default)]
+    pub block_page: bool,
+
+    /// Heading shown on the block page.
+    #[serde(default = "default_block_title")]
+    pub block_title: String,
+
+    /// Body text / motivational message shown on the block page.
+    #[serde(default = "default_block_message")]
+    pub block_message: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_block_title() -> String {
+    "Stay focused.".to_string()
+}
+
+fn default_block_message() -> String {
+    "You blocked this site for a reason. Take a breath and get back to what matters."
+        .to_string()
 }
 
 impl Default for Config {
@@ -64,6 +87,9 @@ impl Default for Config {
             strict_block_doh: true,
             session_until: None,
             lock_session: false,
+            block_page: false,
+            block_title: default_block_title(),
+            block_message: default_block_message(),
         }
     }
 }
