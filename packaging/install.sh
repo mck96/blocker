@@ -61,9 +61,15 @@ msg "Installing the tray autostart entry…"
 install -d /etc/xdg/autostart
 install -m 0644 "$REPO_ROOT/packaging/blocker-tray.desktop" /etc/xdg/autostart/blocker-tray.desktop
 
-msg "Enabling and starting the daemon…"
+msg "Enabling and (re)starting the daemon…"
 systemctl daemon-reload
-systemctl enable --now blockerd.service
+systemctl enable blockerd.service
+# restart (not just start) so a re-install actually picks up the new binary.
+systemctl restart blockerd.service
+# If the optional proxy is already in use, refresh it too.
+if systemctl is-active --quiet blocker-proxy.service; then
+    systemctl restart blocker-proxy.service
+fi
 
 echo
 msg "Done."

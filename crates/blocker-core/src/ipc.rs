@@ -47,18 +47,26 @@ pub struct Status {
     /// Seconds remaining in a focus session, if one is running.
     pub session_remaining_secs: Option<i64>,
     pub session_locked: bool,
+    // Fields below were added in later versions; `#[serde(default)]` keeps a
+    // newer client from erroring when it talks to an older daemon still running
+    // across an upgrade (restart the daemon to refresh it).
     /// Seconds remaining in a break, if one is running.
+    #[serde(default)]
     pub break_remaining_secs: Option<i64>,
     /// Breaks still available today, and how long each one lasts.
+    #[serde(default)]
     pub breaks_left: u32,
+    #[serde(default)]
     pub break_minutes: u32,
     pub host_rule_count: usize,
     pub path_rule_count: usize,
+    #[serde(default)]
     pub keyword_count: usize,
     /// Whether the DNS sinkhole socket is bound and serving.
     pub dns_listening: bool,
     /// Whether the motivational block page is enabled *and* its local servers
     /// are bound (so blocked hosts resolve to 127.0.0.1 and show the page).
+    #[serde(default)]
     pub block_page_active: bool,
     /// The upstream resolvers currently in use.
     pub upstreams: Vec<String>,
