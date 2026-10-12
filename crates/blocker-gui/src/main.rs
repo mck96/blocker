@@ -271,25 +271,72 @@ impl App {
                 );
             }
         } else {
+            // Quick presets (one click).
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Quick:");
+                if ui.button("🍅 Pomodoro 25m").clicked() {
+                    self.start_session(25);
+                }
+                if ui.button("50m").clicked() {
+                    self.start_session(50);
+                }
+                if ui.button("2h").clicked() {
+                    self.start_session(120);
+                }
+                if ui.button("Until end of day").clicked() {
+                    let mins = minutes_until_end_of_day();
+                    if mins > 0 {
+                        self.start_session(mins);
+                    }
+                }
+            });
             ui.horizontal(|ui| {
                 ui.add(
                     egui::Slider::new(&mut self.session_minutes, 5..=480)
                         .suffix(" min")
-                        .text("length"),
+                        .text("custom"),
                 );
-            });
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.session_lock, "Lock (cannot cancel early)");
-                if ui.button("▶ Start focus session").clicked() {
-                    let minutes = self.session_minutes;
-                    let lock = self.session_lock;
-                    self.command(
-                        Request::StartSession { minutes, lock },
-                        "Focus session started",
-                    );
+                if ui.button("▶ Start").clicked() {
+                    self.start_session(self.session_minutes);
                 }
             });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.session_lock, "Lock (cannot cancel or take breaks)");
+            });
         }
+
+        // Break ("I need a break") — pause blocking briefly.
+        if let Some(s) = &self.status {
+            ui.add_space(6.0);
+            if let Some(rem) = s.break_remaining_secs.filter(|r| *r > 0) {
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 150, 40),
+                    format!("☕ On a break — {} left", fmt_duration(rem)),
+                );
+            } else {
+                let left = s.breaks_left;
+                let mins = s.break_minutes;
+                ui.horizontal(|ui| {
+                    let btn = egui::Button::new(format!("☕ Take a {mins}-min break"));
+                    if ui.add_enabled(left > 0, btn).clicked() {
+                        self.command(Request::TakeBreak, "Break started");
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{left} break(s) left today"))
+                            .small()
+                            .weak(),
+                    );
+                });
+            }
+        }
+    }
+
+    fn start_session(&mut self, minutes: u32) {
+        let lock = self.session_lock;
+        self.command(
+            Request::StartSession { minutes, lock },
+            "Focus session started",
+        );
     }
 
     fn rules_section(&mut self, ui: &mut egui::Ui) {
@@ -397,12 +444,36 @@ impl App {
     }
 
     fn schedule_section(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing("Schedule windows", |ui| {
+        egui::CollapsingHeader::new("Schedule windows").default_open(true).show(ui, |ui| {
             ui.label(
-                egui::RichText::new("Used when enforcement is set to \"On a schedule\".")
-                    .small()
-                    .weak(),
+                egui::RichText::new(
+                    "Block only during these weekly time windows (e.g. 08:00–09:00). \
+                     A window applies when enforcement is \"On a schedule\".",
+                )
+                .small()
+                .weak(),
             );
+            // If there are windows but we're not in Scheduled mode, offer a
+            // one-click switch so the schedule actually takes effect.
+            if !self.cfg.schedule.windows.is_empty()
+                && self.cfg.enforcement != Enforcement::Scheduled
+            {
+                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 150, 40),
+                        "⚠ These windows are not active yet.",
+                    );
+                    if ui.button("Activate schedule").clicked() {
+                        self.cfg.enforcement = Enforcement::Scheduled;
+                        self.command(
+                            Request::SetEnforcement {
+                                enforcement: Enforcement::Scheduled,
+                            },
+                            "Schedule activated",
+                        );
+                    }
+                });
+            }
             let mut remove: Option<usize> = None;
             let mut changed = false;
             for (i, w) in self.cfg.schedule.windows.iter_mut().enumerate() {
@@ -452,7 +523,7 @@ impl App {
     }
 
     fn block_page_section(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing("Motivational block page", |ui| {
+        egui::CollapsingHeader::new("Motivational block page").default_open(true).show(ui, |ui| {
             if ui
                 .checkbox(
                     &mut self.cfg.block_page,
@@ -504,7 +575,7 @@ impl App {
     }
 
     fn options_section(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing("Advanced", |ui| {
+        egui::CollapsingHeader::new("Advanced").default_open(false).show(ui, |ui| {
             if ui
                 .checkbox(
                     &mut self.cfg.strict_block_doh,
@@ -542,6 +613,20 @@ fn time_picker(ui: &mut egui::Ui, label: &str, minutes: &mut u16) -> bool {
         *minutes = (h as u16) * 60 + (m as u16);
     }
     changed
+}
+
+/// Minutes from now until 23:59 local time (for "block until end of day").
+fn minutes_until_end_of_day() -> u32 {
+    unsafe {
+        let t = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return 60;
+        }
+        let now_min = tm.tm_hour * 60 + tm.tm_min;
+        let end = 24 * 60; // midnight
+        ((end - now_min).max(1)) as u32
+    }
 }
 
 fn fmt_duration(secs: i64) -> String {

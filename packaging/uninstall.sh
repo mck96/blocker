@@ -25,9 +25,10 @@ elif command -v update-ca-trust >/dev/null 2>&1; then
 fi
 
 msg "Removing files…"
-rm -f /usr/local/bin/blockerd /usr/local/bin/blocker-gui /usr/local/bin/blocker-proxy
+rm -f /usr/local/bin/blockerd /usr/local/bin/blocker-gui /usr/local/bin/blocker-proxy /usr/local/bin/blocker-tray
 rm -f /etc/systemd/system/blockerd.service /etc/systemd/system/blocker-proxy.service
 rm -f /usr/share/applications/blocker-gui.desktop
+rm -f /etc/xdg/autostart/blocker-tray.desktop
 systemctl daemon-reload || true
 
 msg "Belt-and-braces: ensuring resolv.conf / hosts are clean…"

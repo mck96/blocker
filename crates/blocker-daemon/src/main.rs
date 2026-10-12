@@ -370,6 +370,16 @@ fn dispatch(req: Request, engine: &Arc<Engine>, ca: &Option<Arc<blocker_tls::Ca>
             }
             Err(e) => Response::err(e),
         },
+        Request::TakeBreak => match engine.take_break() {
+            Ok(c) => {
+                persist_config(&c);
+                sync_side_effects(engine);
+                Response::Ok {
+                    status: engine.status(),
+                }
+            }
+            Err(e) => Response::err(e),
+        },
         Request::Reload => {
             let c = load_or_init_config();
             engine.replace_config(c);

@@ -17,6 +17,9 @@ pub enum Request {
     StartSession { minutes: u32, lock: bool },
     /// End a focus session early (fails if the session is locked).
     StopSession,
+    /// Pause blocking for `break_minutes` (fails if no breaks remain today or a
+    /// locked session is running).
+    TakeBreak,
     /// Change the enforcement mode.
     SetEnforcement { enforcement: Enforcement },
     /// Re-read config from disk and re-apply (useful after manual edits).
@@ -44,6 +47,11 @@ pub struct Status {
     /// Seconds remaining in a focus session, if one is running.
     pub session_remaining_secs: Option<i64>,
     pub session_locked: bool,
+    /// Seconds remaining in a break, if one is running.
+    pub break_remaining_secs: Option<i64>,
+    /// Breaks still available today, and how long each one lasts.
+    pub breaks_left: u32,
+    pub break_minutes: u32,
     pub host_rule_count: usize,
     pub path_rule_count: usize,
     pub keyword_count: usize,

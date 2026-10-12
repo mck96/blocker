@@ -16,6 +16,7 @@ Written in Rust. Three binaries:
 | `blockerd`      | root    | The engine: a local DNS sinkhole + `/etc/hosts` manager       |
 | `blocker-gui`   | you     | A desktop GUI that talks to the daemon over a Unix socket     |
 | `blocker-proxy` | root    | *Optional.* Filtering proxy for path rules (HTTPS via a CA)   |
+| `blocker-tray`  | you     | *Optional.* System-tray status + quick actions (SNI host)     |
 
 ---
 
@@ -83,16 +84,27 @@ every app. No extension, no per-browser setup.
 
 * **Always on** — the blocklist is enforced continuously.
 * **On a schedule** — enforced only during the weekly time windows you define
-  (e.g. Mon–Fri 09:00–17:00, or 22:00–06:00 which correctly wraps past
-  midnight).
+  (e.g. block **08:00–09:00**, Mon–Fri 09:00–17:00, or 22:00–06:00 which
+  correctly wraps past midnight). Add windows in the GUI's *Schedule windows*
+  section; if you add one while not in schedule mode it offers a one-click
+  **Activate schedule** button.
 * **Off** — not enforced (the daemon still runs and resolves normally).
 
-### Focus sessions
+### Focus sessions & quick blocks
 
-Force blocking **on** for a fixed duration regardless of the mode above — a
-Pomodoro / deep-work button. Optionally **lock** a session so it cannot be
-cancelled early (a commitment device): once locked it only ends when the timer
-runs out.
+Force blocking **on** for a fixed duration regardless of the mode above. The GUI
+has one-click presets — **🍅 Pomodoro 25m**, **50m**, **2h**, and **until end of
+day** — plus a custom slider. Optionally **lock** a session so it cannot be
+cancelled early *and* cannot be paused with a break (a commitment device): once
+locked it only ends when the timer runs out.
+
+### Breaks ("I need a break")
+
+A safety valve: tap **Take a break** to pause blocking for a few minutes
+(default 5), limited to a few times per day (default 3) so it stays a nudge, not
+an escape hatch. The count resets at local midnight, breaks are refused while a
+locked session is running, and the daemon persists the count so you can't reset
+it by restarting. Tune the minutes/allowance in the config.
 
 ### Motivational block page
 
@@ -108,6 +120,15 @@ the per-browser step it prints). Without it, HTTPS sites show a certificate
 warning instead of the page; plain-HTTP sites and all DNS blocking are
 unaffected. Edit the title and message in the GUI's "Motivational block page"
 section.
+
+### System tray
+
+`blocker-tray` puts a status icon in your system tray with quick actions:
+switch enforcement (Always / Scheduled / Off), take a break, and open the
+settings GUI. It auto-starts at login (installed to `/etc/xdg/autostart`). It
+needs a tray host implementing the StatusNotifierItem spec — KDE/Plasma has one
+built in; on GNOME install the *AppIndicator and KStatusNotifierItem* extension.
+If no host is present the icon simply doesn't appear; blocking is unaffected.
 
 ### Works alongside your VPN
 
@@ -239,6 +260,7 @@ crates/
   blocker-daemon/  the privileged DNS sinkhole + system integration  -> blockerd
   blocker-gui/     the egui/eframe desktop front-end                 -> blocker-gui
   blocker-proxy/   optional filtering proxy for path rules (TLS MITM) -> blocker-proxy
+  blocker-tray/    optional system-tray (StatusNotifierItem) client  -> blocker-tray
   blocker-tls/     shared local-CA + rustls config (used by daemon and proxy)
 packaging/
   blockerd.service       systemd unit (DNS daemon)
@@ -250,6 +272,7 @@ packaging/
   trust-ca.sh            trust the local CA (for the HTTPS block page)
   untrust-ca.sh          remove the local CA from the trust store
   blocker-gui.desktop    app-menu launcher
+  blocker-tray.desktop   tray autostart entry (/etc/xdg/autostart)
 ```
 
 ## Security & privilege model

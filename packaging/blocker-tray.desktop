@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Blocker Tray
+Comment=Show Blocker status and quick actions in the system tray
+Exec=blocker-tray
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true

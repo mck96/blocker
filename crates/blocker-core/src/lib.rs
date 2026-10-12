@@ -9,6 +9,7 @@ pub mod config;
 pub mod schedule;
 pub mod ipc;
 pub mod blockpage;
+pub mod client;
 
 pub use config::{Config, Enforcement};
 pub use rule::{HostMatch, ParsedRule, SiteRule};

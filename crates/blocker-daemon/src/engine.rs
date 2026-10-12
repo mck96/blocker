@@ -150,6 +150,30 @@ impl Engine {
         g.config.clone()
     }
 
+    /// Take a break: pause blocking for `break_minutes`. Fails if a locked
+    /// session is running or no breaks remain today.
+    pub fn take_break(&self) -> Result<Config, String> {
+        let mut g = self.inner.write().unwrap();
+        reset_breaks_if_new_day(&mut g.config);
+        if g.config.locked_now(now_unix()) {
+            return Err("A locked focus session is running; breaks are disabled".into());
+        }
+        if g.config.breaks_per_day == 0 {
+            return Err("Breaks are disabled".into());
+        }
+        if g.config.breaks_used_today >= g.config.breaks_per_day {
+            return Err(format!(
+                "No breaks left today ({}/{})",
+                g.config.breaks_used_today, g.config.breaks_per_day
+            ));
+        }
+        let mins = g.config.break_minutes.max(1) as i64;
+        g.config.break_until = Some(now_unix() + mins * 60);
+        g.config.breaks_used_today += 1;
+        g.active = compute_active(&g.config);
+        Ok(g.config.clone())
+    }
+
     /// Stop a focus session early. Returns Err if the session is locked.
     pub fn stop_session(&self) -> Result<Config, String> {
         let mut g = self.inner.write().unwrap();
@@ -173,6 +197,13 @@ impl Engine {
                 g.config.lock_session = false;
             }
         }
+        // Expire a finished break; reset the daily break count at local midnight.
+        if let Some(until) = g.config.break_until {
+            if now_unix() >= until {
+                g.config.break_until = None;
+            }
+        }
+        reset_breaks_if_new_day(&mut g.config);
         let new_active = compute_active(&g.config);
         if new_active != g.active {
             g.active = new_active;
@@ -205,7 +236,14 @@ impl Engine {
 
     pub fn status(&self) -> Status {
         let g = self.inner.read().unwrap();
-        let session_remaining = g.config.session_until.map(|u| (u - now_unix()).max(0));
+        let now = now_unix();
+        let session_remaining = g.config.session_until.map(|u| (u - now).max(0));
+        let break_remaining = g.config.break_until.filter(|u| *u > now).map(|u| u - now);
+        let breaks_left = if local_day() != g.config.break_day {
+            g.config.breaks_per_day
+        } else {
+            g.config.breaks_per_day.saturating_sub(g.config.breaks_used_today)
+        };
         let reason = describe_reason(&g.config, g.active);
         Status {
             blocking_active: g.active,
@@ -213,6 +251,9 @@ impl Engine {
             enforcement: g.config.enforcement,
             session_remaining_secs: session_remaining,
             session_locked: g.config.lock_session && session_running(&g.config),
+            break_remaining_secs: break_remaining,
+            breaks_left,
+            break_minutes: g.config.break_minutes,
             host_rule_count: g.ruleset.host_rule_count(),
             path_rule_count: g.ruleset.path_rule_count(),
             keyword_count: g.ruleset.keyword_count(),
@@ -235,6 +276,27 @@ fn session_running(c: &Config) -> bool {
     c.session_running(now_unix())
 }
 
+/// Reset the per-day break counter when the local calendar day changes.
+fn reset_breaks_if_new_day(c: &mut Config) {
+    let today = local_day();
+    if c.break_day != today {
+        c.break_day = today;
+        c.breaks_used_today = 0;
+    }
+}
+
+/// A monotonic id for the current local calendar day (for break-count resets).
+fn local_day() -> i32 {
+    unsafe {
+        let t = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return 0;
+        }
+        tm.tm_year * 366 + tm.tm_yday
+    }
+}
+
 /// Decide whether blocking should be on right now, delegating to the shared
 /// core logic so the daemon and proxy always agree.
 fn compute_active(c: &Config) -> bool {
@@ -243,6 +305,9 @@ fn compute_active(c: &Config) -> bool {
 }
 
 fn describe_reason(c: &Config, active: bool) -> String {
+    if c.break_active(now_unix()) && !c.locked_now(now_unix()) {
+        return "On a break — blocking paused".into();
+    }
     if session_running(c) {
         let lock = if c.lock_session { " (locked)" } else { "" };
         return format!("Focus session in progress{lock}");

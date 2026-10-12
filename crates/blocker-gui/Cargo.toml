@@ -13,3 +13,4 @@ blocker-core = { path = "../blocker-core" }
 serde.workspace = true
 serde_json.workspace = true
 eframe = "0.31"
+libc = "0.2"

@@ -46,6 +46,7 @@ msg "Installing binaries to $BIN_DIR…"
 install -m 0755 "$REPO_ROOT/target/release/blockerd"      "$BIN_DIR/blockerd"
 install -m 0755 "$REPO_ROOT/target/release/blocker-gui"   "$BIN_DIR/blocker-gui"
 install -m 0755 "$REPO_ROOT/target/release/blocker-proxy" "$BIN_DIR/blocker-proxy"
+install -m 0755 "$REPO_ROOT/target/release/blocker-tray"  "$BIN_DIR/blocker-tray"
 
 msg "Installing systemd units…"
 install -m 0644 "$REPO_ROOT/packaging/blockerd.service"      "$UNIT_DIR/blockerd.service"
@@ -56,6 +57,10 @@ msg "Installing desktop launcher…"
 install -d "$DESKTOP_DIR"
 install -m 0644 "$REPO_ROOT/packaging/blocker-gui.desktop" "$DESKTOP_DIR/blocker-gui.desktop"
 
+msg "Installing the tray autostart entry…"
+install -d /etc/xdg/autostart
+install -m 0644 "$REPO_ROOT/packaging/blocker-tray.desktop" /etc/xdg/autostart/blocker-tray.desktop
+
 msg "Enabling and starting the daemon…"
 systemctl daemon-reload
 systemctl enable --now blockerd.service
@@ -65,6 +70,8 @@ msg "Done."
 echo "  • Daemon status:   systemctl status blockerd"
 echo "  • CLI check:       blockerd status"
 echo "  • Launch the GUI:  blocker-gui   (or from your app menu)"
+echo "  • Tray icon:       starts at next login (needs a StatusNotifier host;"
+echo "                     GNOME needs the AppIndicator extension). Run now: blocker-tray"
 echo "  • OPTIONAL path-level (URL) blocking, e.g. x.com/elonmusk/*:"
 echo "        sudo ./packaging/enable-proxy.sh"
 echo "  • OPTIONAL motivational block page on HTTPS sites: enable it in the"
