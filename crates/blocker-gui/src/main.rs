@@ -451,16 +451,30 @@ impl App {
                     ui.label(text);
                     // classify for the user
                     if let Some(parsed) = rule.parse() {
-                        let tag = match parsed.kind_label() {
-                            "path" => egui::RichText::new("[path · proxy]")
-                                .small()
-                                .color(egui::Color32::from_rgb(180, 140, 40)),
-                            "keyword" => egui::RichText::new("[keyword]")
-                                .small()
-                                .color(egui::Color32::from_rgb(120, 150, 210)),
-                            _ => egui::RichText::new("[domain]").small().weak(),
-                        };
-                        ui.label(tag);
+                        match parsed.kind_label() {
+                            "path" => {
+                                ui.label(
+                                    egui::RichText::new("[path · NEEDS PROXY]")
+                                        .small()
+                                        .color(egui::Color32::from_rgb(210, 120, 40)),
+                                )
+                                .on_hover_text(
+                                    "A path rule only works with the optional proxy enabled. \
+                                     The network filter and DNS cannot see HTTPS paths. To block \
+                                     the whole site instead, add just the domain (e.g. x.com).",
+                                );
+                            }
+                            "keyword" => {
+                                ui.label(
+                                    egui::RichText::new("[keyword]")
+                                        .small()
+                                        .color(egui::Color32::from_rgb(120, 150, 210)),
+                                );
+                            }
+                            _ => {
+                                ui.label(egui::RichText::new("[domain]").small().weak());
+                            }
+                        }
                     } else {
                         ui.colored_label(egui::Color32::from_rgb(200, 60, 60), "[invalid]");
                     }
@@ -496,6 +510,17 @@ impl App {
             if differs && !self.pending_apply {
                 self.dirty = true;
             }
+        }
+
+        let has_path = self.cfg.rules.iter().any(|r| {
+            r.enabled && r.parse().map(|p| p.kind_label() == "path").unwrap_or(false)
+        });
+        if has_path {
+            ui.colored_label(
+                egui::Color32::from_rgb(210, 120, 40),
+                "⚠ A path rule above (e.g. x.com/name) only works with the optional proxy. \
+                 For the network filter, block the whole site with just the domain, e.g. \"x.com\".",
+            );
         }
 
         ui.add_space(6.0);
