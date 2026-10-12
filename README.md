@@ -9,12 +9,13 @@ browser), **every browser sees the same result**: Firefox, Chrome, Chromium,
 Brave, Epiphany, a `curl` on the command line — all of them. There is nothing
 to install per-browser and nothing a browser can disable.
 
-Written in Rust. Two binaries:
+Written in Rust. Three binaries:
 
-| Binary        | Runs as | Job                                                        |
-|---------------|---------|------------------------------------------------------------|
-| `blockerd`    | root    | The engine: a local DNS sinkhole + `/etc/hosts` manager    |
-| `blocker-gui` | you     | A desktop GUI that talks to the daemon over a Unix socket  |
+| Binary          | Runs as | Job                                                           |
+|-----------------|---------|---------------------------------------------------------------|
+| `blockerd`      | root    | The engine: a local DNS sinkhole + `/etc/hosts` manager       |
+| `blocker-gui`   | you     | A desktop GUI that talks to the daemon over a Unix socket     |
+| `blocker-proxy` | root    | *Optional.* Filtering proxy for path rules (HTTPS via a CA)   |
 
 ---
 
@@ -158,15 +159,40 @@ harder, and it's worth being precise about why:
   terminates TLS itself.
 
 So path rules are enforced by an **optional local filtering proxy**
-(`blocker-proxy`, see that component's docs) which, for the hosts that have path
-rules, terminates TLS using a **locally-generated CA that you choose to trust**.
-This is the same technique focus tools and debugging proxies use. It is opt-in
-because trusting a local CA is a meaningful decision, and it is scoped to only
-the hosts you actually wrote path rules for.
+(`blocker-proxy`) which, for the hosts that have path rules, terminates TLS
+using a **locally-generated CA that you choose to trust**. This is the same
+technique focus tools and debugging proxies use. It is opt-in because trusting a
+local CA is a meaningful decision, and it is scoped to only the hosts you
+actually wrote path rules for — every other host is passed through untouched,
+still end-to-end encrypted.
+
+**Enable it (one time):**
+
+```bash
+sudo ./packaging/enable-proxy.sh
+```
+
+That starts the `blocker-proxy` service, generates the CA at
+`/etc/blocker/ca.crt`, and installs it into the system trust store. The script
+then prints the two remaining one-time steps: pointing your system/browser
+HTTP+HTTPS proxy at `127.0.0.1:8080`, and (because browsers often keep their own
+trust store) trusting the CA in Firefox
+(`security.enterprise_roots.enabled = true`) or Chrome/Chromium (`certutil`).
+Turn it all back off with `sudo ./packaging/disable-proxy.sh`.
+
+How the proxy decides, per connection:
+
+* host has a **domain** block → refused (defence in depth; usually already dead
+  at DNS);
+* host has a **path** rule → TLS is terminated, the request path is checked, and
+  the request is either answered with a 403 block page or re-originated to the
+  real server;
+* otherwise → a transparent pass-through tunnel (no interception).
 
 If you don't enable the proxy, a path rule simply does nothing at the DNS layer
 (by design — it will not accidentally block the whole domain). If you want to
-hard-block all of `x.com`, just add `x.com` as a domain rule instead.
+hard-block all of `x.com`, just add `x.com` as a domain rule instead and skip
+the proxy entirely.
 
 ---
 
@@ -177,11 +203,15 @@ crates/
   blocker-core/    shared rule-matching, config, schedule, IPC types (unit-tested)
   blocker-daemon/  the privileged DNS sinkhole + system integration  -> blockerd
   blocker-gui/     the egui/eframe desktop front-end                 -> blocker-gui
+  blocker-proxy/   optional filtering proxy for path rules (TLS MITM) -> blocker-proxy
 packaging/
-  blockerd.service      systemd unit
-  install.sh            build + install + enable
-  uninstall.sh          stop + remove + revert
-  blocker-gui.desktop   app-menu launcher
+  blockerd.service       systemd unit (DNS daemon)
+  blocker-proxy.service  systemd unit (optional path-rule proxy)
+  install.sh             build + install + enable the daemon
+  uninstall.sh           stop + remove + revert everything
+  enable-proxy.sh        opt in to path-level blocking (CA + proxy)
+  disable-proxy.sh       opt back out
+  blocker-gui.desktop    app-menu launcher
 ```
 
 ## Security & privilege model

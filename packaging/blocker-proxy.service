@@ -1,0 +1,17 @@
+[Unit]
+Description=Blocker filtering proxy — enforces path-level (URL) block rules
+Documentation=https://github.com/mck96/blocker
+After=network-online.target blockerd.service
+Wants=network-online.target
+# OPTIONAL component. Only needed for path rules like x.com/elonmusk/*.
+# Domain/subdomain blocking is handled entirely by blockerd and needs none of
+# this. Enable with:  sudo systemctl enable --now blocker-proxy
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/blocker-proxy --listen 127.0.0.1:8080
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

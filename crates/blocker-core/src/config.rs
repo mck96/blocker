@@ -6,7 +6,7 @@ use crate::rule::SiteRule;
 use crate::schedule::Schedule;
 
 /// When blocking is enforced.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Enforcement {
     /// Always on.
@@ -14,13 +14,8 @@ pub enum Enforcement {
     /// On only during the configured schedule windows.
     Scheduled,
     /// Off (unless a focus session is running).
+    #[default]
     Off,
-}
-
-impl Default for Enforcement {
-    fn default() -> Self {
-        Enforcement::Off
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,5 +75,25 @@ impl Config {
 
     pub fn from_json(s: &str) -> Result<Config, serde_json::Error> {
         serde_json::from_str(s)
+    }
+
+    /// Is a focus session currently running?
+    pub fn session_running(&self, now_unix: i64) -> bool {
+        matches!(self.session_until, Some(until) if now_unix < until)
+    }
+
+    /// The single source of truth for "should blocking be enforced right now",
+    /// shared by the daemon and the proxy so they never disagree. `now_unix`,
+    /// `weekday_mon0` (0 = Monday) and `minute_of_day` come from the caller's
+    /// system clock.
+    pub fn is_blocking_active(&self, now_unix: i64, weekday_mon0: u8, minute_of_day: u16) -> bool {
+        if self.session_running(now_unix) {
+            return true;
+        }
+        match self.enforcement {
+            Enforcement::Always => true,
+            Enforcement::Off => false,
+            Enforcement::Scheduled => self.schedule.is_active(weekday_mon0, minute_of_day),
+        }
     }
 }

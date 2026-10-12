@@ -43,11 +43,14 @@ if [[ -n "$TARGET_USER" && "$TARGET_USER" != "root" ]]; then
 fi
 
 msg "Installing binaries to $BIN_DIR…"
-install -m 0755 "$REPO_ROOT/target/release/blockerd"   "$BIN_DIR/blockerd"
-install -m 0755 "$REPO_ROOT/target/release/blocker-gui" "$BIN_DIR/blocker-gui"
+install -m 0755 "$REPO_ROOT/target/release/blockerd"      "$BIN_DIR/blockerd"
+install -m 0755 "$REPO_ROOT/target/release/blocker-gui"   "$BIN_DIR/blocker-gui"
+install -m 0755 "$REPO_ROOT/target/release/blocker-proxy" "$BIN_DIR/blocker-proxy"
 
-msg "Installing systemd unit…"
-install -m 0644 "$REPO_ROOT/packaging/blockerd.service" "$UNIT_DIR/blockerd.service"
+msg "Installing systemd units…"
+install -m 0644 "$REPO_ROOT/packaging/blockerd.service"      "$UNIT_DIR/blockerd.service"
+# The proxy is optional (path rules only) and left disabled by default.
+install -m 0644 "$REPO_ROOT/packaging/blocker-proxy.service" "$UNIT_DIR/blocker-proxy.service"
 
 msg "Installing desktop launcher…"
 install -d "$DESKTOP_DIR"
@@ -62,6 +65,8 @@ msg "Done."
 echo "  • Daemon status:   systemctl status blockerd"
 echo "  • CLI check:       blockerd status"
 echo "  • Launch the GUI:  blocker-gui   (or from your app menu)"
+echo "  • OPTIONAL path-level (URL) blocking, e.g. x.com/elonmusk/*:"
+echo "        sudo ./packaging/enable-proxy.sh"
 echo
 if [[ -n "$TARGET_USER" && "$TARGET_USER" != "root" ]]; then
     warn "Log out and back in (or run 'newgrp blocker') so your new group"

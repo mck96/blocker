@@ -4,6 +4,7 @@ members = [
     "crates/blocker-core",
     "crates/blocker-daemon",
     "crates/blocker-gui",
+    "crates/blocker-proxy",
 ]
 
 [workspace.package]

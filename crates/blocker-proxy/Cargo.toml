@@ -1,0 +1,20 @@
+[package]
+name = "blocker-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "blocker-proxy"
+path = "src/main.rs"
+
+[dependencies]
+blocker-core = { path = "../blocker-core" }
+serde.workspace = true
+serde_json.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = "1"
+rustls-pemfile = "2"
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem", "x509-parser"] }
+webpki-roots = "0.26"
+libc = "0.2"

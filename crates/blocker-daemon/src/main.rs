@@ -53,11 +53,19 @@ fn main() {
     let config = load_or_init_config();
 
     // Detect real upstreams *before* we touch resolv.conf.
-    let upstreams = if config.upstream_dns.is_empty() {
+    let mut upstreams = if config.upstream_dns.is_empty() {
         system::detect_upstreams()
     } else {
         config.upstream_dns.clone()
     };
+    // Always keep a public resolver as a fallback so forwarding still works if
+    // the detected (often LAN) resolver becomes unreachable after a network
+    // change. forward() tries upstreams in order, so detected ones win.
+    for fallback in ["1.1.1.1:53", "9.9.9.9:53"] {
+        if !upstreams.iter().any(|u| u == fallback) {
+            upstreams.push(fallback.to_string());
+        }
+    }
     eprintln!("[blocker] upstream resolvers: {}", upstreams.join(", "));
 
     let engine = Arc::new(Engine::new(config, upstreams, verbose));

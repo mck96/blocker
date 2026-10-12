@@ -116,7 +116,7 @@ impl ParsedRule {
             HostMatch::DomainAndSubdomains(host)
         };
 
-        let path_prefix = path_part.and_then(|p| normalise_path_prefix(p));
+        let path_prefix = path_part.and_then(normalise_path_prefix);
 
         Some(ParsedRule {
             host: host_match,
@@ -238,6 +238,12 @@ impl RuleSet {
     }
     pub fn path_rule_count(&self) -> usize {
         self.path_rules.len()
+    }
+
+    /// True if any *path* rule applies to this host. The proxy uses this to
+    /// decide whether a host is worth intercepting (TLS-terminating) at all.
+    pub fn host_has_path_rule(&self, host: &str) -> bool {
+        self.path_rules.iter().any(|r| r.host_matches(host))
     }
 
     /// The concrete hostnames to write into /etc/hosts (exact + domain apexes;

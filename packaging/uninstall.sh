@@ -9,14 +9,24 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-msg "Stopping and disabling the daemon…"
+msg "Stopping and disabling services…"
+systemctl disable --now blocker-proxy.service 2>/dev/null || true
 systemctl disable --now blockerd.service 2>/dev/null || true
 # Stopping the daemon triggers its own cleanup (resolv.conf + hosts restore).
 sleep 1
 
+# Remove the CA from the system trust store if the proxy was ever enabled.
+if command -v update-ca-certificates >/dev/null 2>&1; then
+    rm -f /usr/local/share/ca-certificates/blocker.crt
+    update-ca-certificates --fresh >/dev/null 2>&1 || true
+elif command -v update-ca-trust >/dev/null 2>&1; then
+    rm -f /etc/pki/ca-trust/source/anchors/blocker.crt
+    update-ca-trust >/dev/null 2>&1 || true
+fi
+
 msg "Removing files…"
-rm -f /usr/local/bin/blockerd /usr/local/bin/blocker-gui
-rm -f /etc/systemd/system/blockerd.service
+rm -f /usr/local/bin/blockerd /usr/local/bin/blocker-gui /usr/local/bin/blocker-proxy
+rm -f /etc/systemd/system/blockerd.service /etc/systemd/system/blocker-proxy.service
 rm -f /usr/share/applications/blocker-gui.desktop
 systemctl daemon-reload || true
 

@@ -185,22 +185,14 @@ fn compile_doh() -> Vec<ParsedRule> {
 }
 
 fn session_running(c: &Config) -> bool {
-    matches!(c.session_until, Some(until) if now_unix() < until)
+    c.session_running(now_unix())
 }
 
-/// Decide whether blocking should be on right now.
+/// Decide whether blocking should be on right now, delegating to the shared
+/// core logic so the daemon and proxy always agree.
 fn compute_active(c: &Config) -> bool {
-    if session_running(c) {
-        return true;
-    }
-    match c.enforcement {
-        Enforcement::Always => true,
-        Enforcement::Off => false,
-        Enforcement::Scheduled => {
-            let (weekday, minute) = local_weekday_minute();
-            c.schedule.is_active(weekday, minute)
-        }
-    }
+    let (weekday, minute) = local_weekday_minute();
+    c.is_blocking_active(now_unix(), weekday, minute)
 }
 
 fn describe_reason(c: &Config, active: bool) -> String {
